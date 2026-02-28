@@ -12,7 +12,6 @@ const App = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [learningData, setLearningData] = useState(null);
 
-  // 🌟 追加：履歴で選択された項目のIDを保存する配列
   const [selectedHistoryIds, setSelectedHistoryIds] = useState([]);
 
   const fetchHistory = async () => {
@@ -48,7 +47,6 @@ const App = () => {
     fetchHistory();
   }, []);
 
-  // 🌟 変更：オートセーブ用の関数（アラートを出さずに裏で静かに保存します）
   const autoSaveToSupabase = async (data) => {
     try {
       const { data: sessionData, error: sessionError } = await supabase.from('sessions').insert([{ search_word: data.search_word_jp, theme: data.situation_theme }]).select();
@@ -66,25 +64,27 @@ const App = () => {
       const { error: reviewsError } = await supabase.from('reviews').insert([{ session_id: newSessionId, review_level: 1, next_review_at: nextReviewDate.toISOString() }]);
       if (reviewsError) throw reviewsError;
 
-      fetchHistory(); // 保存成功したら裏で履歴リストを最新に更新
+      fetchHistory(); 
     } catch (err) {
       console.error('自動保存エラー:', err);
     }
   };
 
-  // 🌟 変更：引数(query)を受け取れるようにし、関連ワードクリック時に即検索が走るように修正
   const generateNuanceData = async (query = searchInput) => {
     if (!query.trim()) return;
-    setSearchInput(query); // 検索窓の文字もクリックしたワードに合わせる
+    setSearchInput(query); 
     setIsGenerating(true);
     setLearningData(null); 
 
     try {
       const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      
+      // 🌟 変更：日本語だけでなく、英単語が入力されても対応できるように指示書をアップデート！
       const prompt = `
         あなたは優秀なネイティブ英語教師です。
-        ユーザーが入力した日本語「${query}」を英語にする際の、複数の英単語や表現の微妙なニュアンスの違いを解説してください。
+        ユーザーが入力したキーワード「${query}」について、関連する複数の英単語や表現の微妙なニュアンスの違いを解説してください。
+        （※入力が日本語の場合はそれを英語にした時のニュアンスを、英語の場合はその単語と似た表現との使い分けを解説してください。）
         以下のJSONフォーマットのみを絶対に出力してください。マークダウン（\`\`\`json など）は不要です。
         {
           "search_word_jp": "${query}",
@@ -100,8 +100,6 @@ const App = () => {
       const generatedData = JSON.parse(cleanJsonStr);
 
       setLearningData(generatedData);
-      
-      // 🌟 追加：データ生成直後に自動セーブを実行！
       await autoSaveToSupabase(generatedData);
 
     } catch (error) {
@@ -112,27 +110,24 @@ const App = () => {
     }
   };
 
-  // 🌟 追加：履歴の選択を切り替える関数
   const toggleSelectHistory = (id) => {
     setSelectedHistoryIds(prev => 
       prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id]
     );
   };
 
-  // 🌟 追加：選択した履歴をDBからまとめて削除する関数
   const deleteSelectedHistory = async () => {
     if (!window.confirm(`${selectedHistoryIds.length}件の履歴を削除しますか？`)) return;
     
     try {
-      // 安全のため、子テーブル（words, reviews）から先に削除して、親（sessions）を消す
       await supabase.from('words').delete().in('session_id', selectedHistoryIds);
       await supabase.from('reviews').delete().in('session_id', selectedHistoryIds);
       const { error } = await supabase.from('sessions').delete().in('id', selectedHistoryIds);
       
       if (error) throw error;
       
-      setSelectedHistoryIds([]); // 選択状態をリセット
-      fetchHistory(); // リストを再取得
+      setSelectedHistoryIds([]); 
+      fetchHistory(); 
     } catch (err) {
       console.error('削除エラー:', err);
       alert('削除に失敗しました。');
@@ -192,10 +187,9 @@ const App = () => {
                 onChange={(e) => setSearchInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && generateNuanceData()}
                 className="flex-1 w-full bg-gray-100 text-lg rounded-full px-5 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="日本語で検索..."
+                placeholder="調べたい言葉を入力..."
                 disabled={isGenerating}
               />
-              {/* 🌟 変更：虫眼鏡アイコンの正円ボタンに変更し、幅を固定 */}
               <button 
                 onClick={() => generateNuanceData()}
                 disabled={isGenerating || !searchInput.trim()}
@@ -217,7 +211,7 @@ const App = () => {
             {!isGenerating && !learningData && (
               <div className="text-center text-gray-400 py-20">
                 <p className="text-6xl mb-4">💡</p>
-                <p>気になる日本語を入力して、<br/>ニュアンスの違いを学びましょう！</p>
+                <p>気になる言葉を入力して、<br/>ニュアンスの違いを学びましょう！</p>
               </div>
             )}
 
@@ -246,7 +240,6 @@ const App = () => {
             ))}
           </main>
 
-          {/* 🌟 変更：関連ワードを押すと、自動で検索（generateNuanceData(word)）が走るように修正 */}
           {!isGenerating && learningData && (
             <footer className="fixed bottom-0 w-full bg-white border-t border-gray-200 p-4 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-20">
               <p className="text-xs text-gray-500 text-center mb-3 font-medium">👉 次はどのテーマに進む？</p>
@@ -269,7 +262,6 @@ const App = () => {
       {activeTab === 'history' && (
         <main className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
           
-          {/* 🌟 追加：削除用のコントロールバー（1つ以上選択されている時だけ表示） */}
           {selectedHistoryIds.length > 0 && (
             <div className="flex justify-between items-center mb-4 bg-red-50 p-3 rounded-xl border border-red-200 shadow-sm sticky top-0 z-10">
               <span className="text-sm text-red-600 font-bold">{selectedHistoryIds.length}件を選択中</span>
@@ -287,13 +279,11 @@ const App = () => {
             <p className="text-center text-gray-400 mt-10 text-sm">履歴がありません。<br/>検索すると自動で保存されます！</p>
           ) : (
             historyList.map((session) => (
-              /* 🌟 変更：カード全体をクリック可能にし、選択状態の時は枠色が変わるようにした */
               <div 
                 key={session.id} 
                 onClick={() => toggleSelectHistory(session.id)}
                 className={`bg-white p-4 rounded-xl shadow-sm border transition cursor-pointer relative ${selectedHistoryIds.includes(session.id) ? 'border-blue-500 ring-2 ring-blue-100 bg-blue-50' : 'border-gray-100 hover:border-gray-300'}`}
               >
-                {/* 🌟 追加：右上のチェックボックス（見た目用） */}
                 <div className="absolute top-4 right-4">
                   <input 
                     type="checkbox" 
@@ -310,9 +300,21 @@ const App = () => {
                   </div>
                   {getStatusBadge(session.status)}
                 </div>
+                
                 <div className="flex flex-wrap gap-2 mt-3">
                   {session.words.map(word => (
-                    <span key={word} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-md border border-gray-200">{word}</span>
+                    /* 🌟 変更：単語をボタン化し、クリック時に e.stopPropagation() で親への伝播を防ぐ */
+                    <button 
+                      key={word} 
+                      onClick={(e) => {
+                        e.stopPropagation(); // 👈 これが親カードの選択をブロックする魔法です
+                        setActiveTab('learning');
+                        generateNuanceData(word);
+                      }}
+                      className="text-xs bg-gray-50 text-gray-700 font-bold px-3 py-1.5 rounded-md border border-gray-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition active:scale-95 shadow-sm"
+                    >
+                      {word}
+                    </button>
                   ))}
                 </div>
               </div>
