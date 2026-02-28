@@ -14,7 +14,7 @@ const App = () => {
   const [selectedHistoryIds, setSelectedHistoryIds] = useState([]);
 
   // 🌟 追加：家族のプロフィール設定
-  const FAMILY_MEMBERS = ['パパ', 'ママ', '凛ちゃん'];
+  const FAMILY_MEMBERS = ['とと', 'かか', 'りんな'];
   const [currentUser, setCurrentUser] = useState(FAMILY_MEMBERS[0]);
 
   const fetchHistory = async () => {
