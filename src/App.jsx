@@ -11,16 +11,37 @@ const App = () => {
   const [searchInput, setSearchInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [learningData, setLearningData] = useState(null);
-
   const [selectedHistoryIds, setSelectedHistoryIds] = useState([]);
+
+  // 🌟 追加：家族のプロフィール設定
+  const FAMILY_MEMBERS = ['パパ', 'ママ', '凛ちゃん'];
+  const [currentUser, setCurrentUser] = useState(FAMILY_MEMBERS[0]);
 
   const fetchHistory = async () => {
     try {
-      const { data: sessions, error: sessionsError } = await supabase.from('sessions').select('*').order('created_at', { ascending: false });
+      // 🌟 変更：現在選択されているユーザー（currentUser）の履歴だけを取得する
+      const { data: sessions, error: sessionsError } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('user_name', currentUser) // 👈 これがフィルターです！
+        .order('created_at', { ascending: false });
+      
       if (sessionsError) throw sessionsError;
-      const { data: words, error: wordsError } = await supabase.from('words').select('*');
+
+      // セッションがない場合は空にして終了
+      if (!sessions || sessions.length === 0) {
+        setHistoryList([]);
+        return;
+      }
+
+      // 取得したセッションのIDリストを作る
+      const sessionIds = sessions.map(s => s.id);
+
+      // 🌟 変更：関連する単語とレビューだけを取得して通信量を節約
+      const { data: words, error: wordsError } = await supabase.from('words').select('*').in('session_id', sessionIds);
       if (wordsError) throw wordsError;
-      const { data: reviews, error: reviewsError } = await supabase.from('reviews').select('*');
+      
+      const { data: reviews, error: reviewsError } = await supabase.from('reviews').select('*').in('session_id', sessionIds);
       if (reviewsError) throw reviewsError;
 
       const formattedHistory = sessions.map(session => {
@@ -43,13 +64,24 @@ const App = () => {
     }
   };
 
+  // 🌟 追加：ユーザーが切り替わったら、履歴を取り直す
   useEffect(() => {
     fetchHistory();
-  }, []);
+    setSelectedHistoryIds([]); // 選択状態もリセット
+  }, [currentUser]);
 
   const autoSaveToSupabase = async (data) => {
     try {
-      const { data: sessionData, error: sessionError } = await supabase.from('sessions').insert([{ search_word: data.search_word_jp, theme: data.situation_theme }]).select();
+      // 🌟 変更：保存する時に「誰のデータか（user_name）」を一緒に保存する
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('sessions')
+        .insert([{ 
+          search_word: data.search_word_jp, 
+          theme: data.situation_theme,
+          user_name: currentUser // 👈 ここで印をつける！
+        }])
+        .select();
+      
       if (sessionError) throw sessionError;
       const newSessionId = sessionData[0].id; 
       
@@ -79,12 +111,9 @@ const App = () => {
     try {
       const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-      
-      // 🌟 変更：日本語だけでなく、英単語が入力されても対応できるように指示書をアップデート！
       const prompt = `
         あなたは優秀なネイティブ英語教師です。
         ユーザーが入力したキーワード「${query}」について、関連する複数の英単語や表現の微妙なニュアンスの違いを解説してください。
-        （※入力が日本語の場合はそれを英語にした時のニュアンスを、英語の場合はその単語と似た表現との使い分けを解説してください。）
         以下のJSONフォーマットのみを絶対に出力してください。マークダウン（\`\`\`json など）は不要です。
         {
           "search_word_jp": "${query}",
@@ -111,26 +140,20 @@ const App = () => {
   };
 
   const toggleSelectHistory = (id) => {
-    setSelectedHistoryIds(prev => 
-      prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id]
-    );
+    setSelectedHistoryIds(prev => prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id]);
   };
 
   const deleteSelectedHistory = async () => {
     if (!window.confirm(`${selectedHistoryIds.length}件の履歴を削除しますか？`)) return;
-    
     try {
       await supabase.from('words').delete().in('session_id', selectedHistoryIds);
       await supabase.from('reviews').delete().in('session_id', selectedHistoryIds);
       const { error } = await supabase.from('sessions').delete().in('id', selectedHistoryIds);
-      
       if (error) throw error;
-      
       setSelectedHistoryIds([]); 
       fetchHistory(); 
     } catch (err) {
       console.error('削除エラー:', err);
-      alert('削除に失敗しました。');
     }
   };
 
@@ -169,14 +192,31 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
-      <header className="bg-white pt-6 pb-0 shadow-sm sticky top-0 z-20">
-        <h1 className="text-center text-xl font-extrabold text-gray-800 mb-4 tracking-tight">NuanceLingo</h1>
+      <header className="bg-white shadow-sm sticky top-0 z-20">
+        
+        {/* 🌟 追加：ヘッダー上部のプロフィール切り替えエリア */}
+        <div className="bg-gray-800 text-white px-4 py-2 flex justify-between items-center text-sm">
+          <span className="font-bold opacity-80">🏠 ファミリーアカウント</span>
+          <select 
+            value={currentUser} 
+            onChange={(e) => setCurrentUser(e.target.value)}
+            className="bg-gray-700 text-white text-xs font-bold py-1 px-3 rounded-full border-none outline-none cursor-pointer focus:ring-2 focus:ring-blue-400"
+          >
+            {FAMILY_MEMBERS.map(member => (
+              <option key={member} value={member}>{member} の学習室</option>
+            ))}
+          </select>
+        </div>
+
+        <h1 className="text-center text-xl font-extrabold text-gray-800 my-4 tracking-tight">NuanceLingo</h1>
+        
         <div className="flex border-b border-gray-200">
           <button onClick={() => setActiveTab('learning')} className={`flex-1 py-3 text-sm font-bold text-center border-b-4 transition-colors ${activeTab === 'learning' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>学習 📚</button>
           <button onClick={() => { setActiveTab('history'); setSelectedHistoryIds([]); }} className={`flex-1 py-3 text-sm font-bold text-center border-b-4 transition-colors ${activeTab === 'history' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>振り返り 🧠 {needsReviewCount > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full ml-1">{needsReviewCount}</span>}</button>
         </div>
       </header>
 
+      {/* （以下、学習タブと履歴タブの中身は変更なし） */}
       {activeTab === 'learning' && (
         <>
           <div className="bg-white p-4 shadow-sm z-10">
@@ -274,7 +314,7 @@ const App = () => {
             </div>
           )}
 
-          <h2 className="font-bold text-gray-700 ml-1 mb-2">学習履歴</h2>
+          <h2 className="font-bold text-gray-700 ml-1 mb-2">{currentUser} の学習履歴</h2>
           {historyList.length === 0 ? (
             <p className="text-center text-gray-400 mt-10 text-sm">履歴がありません。<br/>検索すると自動で保存されます！</p>
           ) : (
@@ -303,11 +343,10 @@ const App = () => {
                 
                 <div className="flex flex-wrap gap-2 mt-3">
                   {session.words.map(word => (
-                    /* 🌟 変更：単語をボタン化し、クリック時に e.stopPropagation() で親への伝播を防ぐ */
                     <button 
                       key={word} 
                       onClick={(e) => {
-                        e.stopPropagation(); // 👈 これが親カードの選択をブロックする魔法です
+                        e.stopPropagation();
                         setActiveTab('learning');
                         generateNuanceData(word);
                       }}
